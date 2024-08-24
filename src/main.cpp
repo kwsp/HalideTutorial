@@ -1,5 +1,6 @@
 #include <Halide.h>
 #include <fmt/core.h>
+#include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -100,11 +101,75 @@ int runHalide() {
 
 // }
 
+void runWarp2D() {
+  // auto img =
+  //     cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
+  auto img =
+      cv::imread("/Users/tnie/Downloads/USlog.jpg", cv::IMREAD_GRAYSCALE);
+  const auto input = convertMatToHalide(img);
+
+  // Define the center, maximum radius, and whether it's a full circle
+  const int r = std::min(input.width(), input.height());
+  const int outX = r;
+  const int outY = r;
+
+  float centerX = static_cast<float>(r) / 2.0F;
+  float centerY = static_cast<float>(r) / 2.0F;
+  float maxRadius = std::min(centerX, centerY);
+
+  Halide::ImageParam param(Halide::UInt(8), 2);
+
+  Halide::Buffer<uint8_t> output(outX, outY);
+  warp::WarpPolar warpFunc(param, centerX, centerY, maxRadius);
+  warpFunc.schedule_cpu();
+
+  warpFunc(input, output);
+
+  auto res = convertHalideToMat(output);
+  cv::resize(res, res, {res.cols / 2, res.rows / 2});
+  cv::rotate(res, res, cv::ROTATE_90_CLOCKWISE);
+
+  cv::imwrite("warpPolar_halide.jpg", res);
+
+  cv::imshow("", res);
+  cv::waitKey(0);
+
+  uspam::bench("warp 2D Halide", 100, [&] { warpFunc(input, output); });
+}
+
+void runWarp3D() {
+  auto img = cv::imread("/Users/tnie/Downloads/stripes.jpg");
+  const auto input = convertMatToHalide(img);
+
+  // Define the center, maximum radius, and whether it's a full circle
+  const int r = std::min(input.width(), input.height());
+  const int outX = r;
+  const int outY = r;
+
+  float centerX = static_cast<float>(r) / 2.0F;
+  float centerY = static_cast<float>(r) / 2.0F;
+  float maxRadius = std::min(centerX, centerY);
+
+  Halide::ImageParam param(Halide::UInt(8), 3);
+
+  Halide::Buffer<uint8_t> output(outX, outY, 3);
+  warp::WarpPolar<3> warpFunc(param, centerX, centerY, maxRadius);
+  warpFunc.schedule_cpu();
+
+  warpFunc(input, output);
+
+  auto res = convertHalideToMat(output);
+  cv::resize(res, res, {res.cols / 2, res.rows / 2});
+  cv::imwrite("warpPolar_halide.jpg", res);
+
+  cv::imshow("", res);
+  cv::waitKey(0);
+}
+
 void runWarp() {
   // Load an image
   auto img =
       cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
-
   // cv::imshow("", img);
   // cv::waitKey(0);
 
@@ -120,49 +185,15 @@ void runWarp() {
   float centerY = static_cast<float>(r) / 2.0F;
   float maxRadius = std::min(centerX, centerY);
 
-  // Define the polar warp function
   Halide::ImageParam param(Halide::UInt(8), 2);
 
   Halide::Buffer<uint8_t> output(outX, outY);
-  warp::WarpPolar warpFunc(param, centerX, centerY, maxRadius);
+  warp::WarpPolar<3> warpFunc(param, centerX, centerY, maxRadius);
   warpFunc.schedule_cpu();
   warpFunc(input, output);
 
-  // Halide::Func polar_warped =
-  //     warp::warp_polar(param, centerX, centerY, maxRadius);
-
-  // // Scheduling: GPU target
-  // Halide::Var x("x");
-  // Halide::Var y("y");
-
-  // // // Schedule
-  // Halide::Var xi("xi");
-  // Halide::Var yi("yi");
-  // polar_warped.tile(x, y, xi, yi, 16, 16).vectorize(xi).parallel(y);
-
-  // Halide::Pipeline pipeline(polar_warped);
-
-  // // Set the target to use the GPU
-  // Halide::Target target = Halide::get_host_target();
-  // // target.set_feature(
-  // //     Halide::Target::CUDA); // or Target::OpenCL, Target::Metal, etc.
-
-  // pipeline.compile_jit(target);
-
-  // // Realize the output on the GPU
-  // Halide::Buffer<uint8_t> output(outX, outY);
-  // param.set(input);
-  // pipeline.realize(output);
-
-  // {
-  //   Halide::Buffer<uint8_t> output(outX, outY);
-  //   param.set(input);
-  //   pipeline.realize(output);
-  // }
-
   auto res = convertHalideToMat(output);
   cv::resize(res, res, {res.cols / 2, res.rows / 2});
-
   cv::imwrite("warpPolar_halide.jpg", res);
 
   cv::imshow("", res);
@@ -183,7 +214,6 @@ void runWarp() {
     // Halide::Buffer<uint8_t> output(outX, outY);
     // param.set(input);
     // pipeline.realize(output);
-
     warpFunc(input, output);
   });
 
@@ -200,7 +230,9 @@ int main(int argc, char *argv[]) {
 
   fmt::println("Host target: {}", Halide::get_host_target().to_string());
 
-  runWarp();
+  // runWarp();
+  runWarp2D();
+  runWarp3D();
 
   return 0;
 }
