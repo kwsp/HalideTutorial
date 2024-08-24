@@ -6,7 +6,11 @@
     "fmt",
     "armadillo",
     {
-      "name": "halide-prebuilt"
+      "name": "opencv4",
+      "features": ["contrib", "dnn", "png", "vulkan", "tbb", "png", "world"]
+    },
+    {
+      "name": "halide"
     }
   ]
 }

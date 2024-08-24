@@ -4,6 +4,7 @@ find_package(fmt CONFIG REQUIRED)
 
 find_package(Armadillo CONFIG REQUIRED)
 find_package(Halide CONFIG REQUIRED)
+find_package(OpenCV CONFIG REQUIRED)
 
 add_executable(${EXE_NAME}
   main.cpp
@@ -18,4 +19,5 @@ target_link_libraries(${EXE_NAME} PRIVATE
   fmt::fmt
   armadillo
   Halide::Halide
+  opencv_world
 )
