@@ -10,7 +10,7 @@ template <int Dims = 2> class WarpPolar {
 public:
   WarpPolar(Halide::ImageParam input, float centerX, float centerY,
             float maxRadius)
-      : m_input(std::move(input)), centerX(centerX), centerY(centerY),
+      : input(std::move(input)), centerX(centerX), centerY(centerY),
         maxRadius(maxRadius) {
     setupFuncInverse();
   }
@@ -43,12 +43,12 @@ public:
 
   template <typename T>
   void operator()(const Halide::Buffer<T> &input, Halide::Buffer<T> &output) {
-    m_input.set(input);
-    pipeline.realize(output);
+    this->input.set(input);
+    this->pipeline.realize(output);
   }
 
 private:
-  Halide::ImageParam m_input;
+  Halide::ImageParam input;
   Halide::Var x{"x"};
   Halide::Var y{"y"};
   Halide::Var c{"c"};
@@ -78,81 +78,31 @@ private:
 
     // Calculate corresponding Cartesian coordinates in the input image
     Halide::Expr srcX =
-        Halide::clamp(Halide::cast<int>(normalized_radius * m_input.width()), 0,
-                      m_input.width() - 1);
+        Halide::clamp(Halide::cast<int>(normalized_radius * input.width()), 0,
+                      input.width() - 1);
     Halide::Expr srcY =
-        Halide::clamp(Halide::cast<int>(normalized_angle * m_input.height()), 0,
-                      m_input.height() - 1);
+        Halide::clamp(Halide::cast<int>(normalized_angle * input.height()), 0,
+                      input.height() - 1);
 
-    Halide::Expr outOfBound = srcX < 0 || srcX >= m_input.width() || srcY < 0 ||
-                              srcY >= m_input.height();
+    Halide::Expr outOfBound =
+        srcX < 0 || srcX >= input.width() || srcY < 0 || srcY >= input.height();
 
-    Halide::Expr fillValue = Halide::cast(m_input.type(), 0);
+    Halide::Expr fillValue = Halide::cast(input.type(), 0);
 
     // Create the output function
     if constexpr (Dims == 2) {
       // 2D grayscale image
-      // warpped(x, y) = m_input(srcX, srcY);
-      warpped(x, y) =
-          Halide::select(outOfBound, fillValue, m_input(srcX, srcY));
+      warpped(x, y) = input(srcX, srcY);
+      // warpped(x, y) = Halide::select(outOfBound, fillValue, input(srcX,
+      // srcY));
     } else if constexpr (Dims == 3) {
-      warpped(x, y, c) = m_input(srcX, srcY, c);
+      warpped(x, y, c) = input(srcX, srcY, c);
     } else {
       static_assert(Dims == 2 || Dims == 3, "Unsupported number of dimensions");
     }
   }
 
   Halide::Expr frac(const Halide::Expr &x) { return x - Halide::floor(x); }
-
-  void setupFuncForward() {
-
-    // Compute the maximum angle, 360 degrees or 180 degrees depending on
-    // fullCircle
-    float maxAngle = 2.0F * std::numbers::pi;
-
-    // Compute polar coordinates based on the output pixel location
-    Halide::Expr radius = Halide::cast<float>(y) * maxRadius / m_input.height();
-    Halide::Expr angle = Halide::cast<float>(x) * maxAngle / m_input.width() -
-                         std::numbers::pi_v<float>;
-
-    // Convert polar coordinates to Cartesian coordinates
-    Halide::Expr srcX = centerX + radius * cos(angle);
-    Halide::Expr srcY = centerY + radius * sin(angle);
-
-    // Check if coordinates are out of bounds
-    Halide::Expr out_of_bounds = srcX < 0 || srcX >= m_input.width() ||
-                                 srcY < 0 || srcY >= m_input.height();
-
-    // Define the fill value for outliers using the same type as the input image
-    Halide::Type input_type = m_input.type();
-    Halide::Expr fill_value = cast(input_type, 0);
-
-    // Use bilinear interpolation for better quality
-    Halide::Func interpolated =
-        Halide::BoundaryConditions::repeat_edge(m_input);
-    Halide::Expr v1 =
-        interpolated(clamp(cast<int>(srcX), 0, m_input.width() - 1),
-                     clamp(cast<int>(srcY), 0, m_input.height() - 1));
-    Halide::Expr v2 =
-        interpolated(clamp(cast<int>(srcX) + 1, 0, m_input.width() - 1),
-                     clamp(cast<int>(srcY), 0, m_input.height() - 1));
-    Halide::Expr v3 =
-        interpolated(clamp(cast<int>(srcX), 0, m_input.width() - 1),
-                     clamp(cast<int>(srcY) + 1, 0, m_input.height() - 1));
-    Halide::Expr v4 =
-        interpolated(clamp(cast<int>(srcX) + 1, 0, m_input.width() - 1),
-                     clamp(cast<int>(srcY) + 1, 0, m_input.height() - 1));
-
-    Halide::Expr xf = frac(srcX);
-    Halide::Expr yf = frac(srcY);
-    Halide::Expr interpolated_value =
-        lerp(lerp(v1, v2, xf), lerp(v3, v4, xf), yf);
-
-    // Create the output function
-    warpped(x, y) = interpolated_value;
-    // warpped(x, y) =
-    //     Halide::select(out_of_bounds, fill_value, interpolated_value);
-  }
 };
 
 } // namespace warp
