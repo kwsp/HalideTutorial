@@ -4,6 +4,11 @@
 #include <fmt/core.h>
 #include <opencv2/opencv.hpp>
 
+namespace hl {
+
+// Compute the fractional part of the expr
+Halide::Expr frac(const Halide::Expr &x) { return x - Halide::floor(x); }
+
 // Function to convert cv::Mat to Halide::Buffer<uint8_t>
 Halide::Buffer<uint8_t> convertMatToHalide(const cv::Mat &mat) {
   // Ensure the Mat is continuous in memory
@@ -57,3 +62,5 @@ cv::Mat convertHalideToMat(const Halide::Buffer<T> &buffer) {
 
   return mat;
 }
+
+} // namespace hl

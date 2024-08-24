@@ -4,7 +4,7 @@
 #include <fmt/core.h>
 #include <numbers>
 
-namespace warp {
+namespace hl {
 
 template <int Dims = 2> class WarpPolar {
 public:
@@ -16,7 +16,6 @@ public:
   }
 
   void schedule_cpu() {
-    // Scheduling: GPU target
     Halide::Var xi("xi");
     Halide::Var yi("yi");
     Halide::Var ci("ci");
@@ -61,48 +60,50 @@ private:
   Halide::Pipeline pipeline;
 
   void setupFuncInverse() {
-    // Compute the maximum angle, 360 degrees or 180 degrees depending on
-    // fullCircle
     float maxAngle = 2.0F * std::numbers::pi_v<float>;
 
     // Compute polar coordinates (radius, angle) for each point
-    Halide::Expr dx = x - centerX;
-    Halide::Expr dy = y - centerY;
-    Halide::Expr radius = Halide::sqrt(dx * dx + dy * dy);
-    Halide::Expr angle = Halide::atan2(dy, dx);
+    auto dx = x - centerX;
+    auto dy = y - centerY;
+    auto radius = Halide::sqrt(dx * dx + dy * dy);
+    auto angle = Halide::atan2(dy, dx);
 
     // Normalize the radius and angle
-    Halide::Expr normalized_radius = radius / maxRadius;
-    Halide::Expr normalized_angle =
-        (angle + std::numbers::pi_v<float>) / maxAngle;
+    auto normalized_radius = radius / maxRadius;
+    auto normalized_angle = (angle + std::numbers::pi_v<float>) / maxAngle;
 
     // Calculate corresponding Cartesian coordinates in the input image
-    Halide::Expr srcX =
-        Halide::clamp(Halide::cast<int>(normalized_radius * input.width()), 0,
-                      input.width() - 1);
-    Halide::Expr srcY =
-        Halide::clamp(Halide::cast<int>(normalized_angle * input.height()), 0,
-                      input.height() - 1);
+    // auto srcX =
+    //     Halide::clamp(Halide::cast<int>(normalized_radius * input.width()),
+    //     0,
+    //                   input.width() - 1);
+    // auto srcY =
+    //     Halide::clamp(Halide::cast<int>(normalized_angle * input.height()),
+    //     0,
+    //                   input.height() - 1);
 
-    Halide::Expr outOfBound =
+    auto srcX = Halide::cast<int>(normalized_radius * input.width());
+    auto srcY = Halide::cast<int>(normalized_angle * input.height());
+    auto outOfBound =
         srcX < 0 || srcX >= input.width() || srcY < 0 || srcY >= input.height();
 
-    Halide::Expr fillValue = Halide::cast(input.type(), 0);
+    auto srcXclamped = Halide::clamp(srcX, 0, input.width() - 1);
+    auto srcYclamped = Halide::clamp(srcY, 0, input.height() - 1);
 
-    // Create the output function
     if constexpr (Dims == 2) {
       // 2D grayscale image
-      warpped(x, y) = input(srcX, srcY);
-      // warpped(x, y) = Halide::select(outOfBound, fillValue, input(srcX,
-      // srcY));
+      // warpped(x, y) = input(srcX, srcY);
+      warpped(x, y) =
+          Halide::select(outOfBound, 0, input(srcXclamped, srcYclamped));
+
+      // auto realValue = Halide::cast(input.type(), 255);
+      // warpped(x, y) = Halide::select(outOfBound, fillValue, realValue);
     } else if constexpr (Dims == 3) {
       warpped(x, y, c) = input(srcX, srcY, c);
     } else {
       static_assert(Dims == 2 || Dims == 3, "Unsupported number of dimensions");
     }
   }
-
-  Halide::Expr frac(const Halide::Expr &x) { return x - Halide::floor(x); }
 };
 
-} // namespace warp
+} // namespace hl

@@ -102,11 +102,11 @@ int runHalide() {
 // }
 
 void runWarp2D() {
-  // auto img =
-  //     cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
   auto img =
-      cv::imread("/Users/tnie/Downloads/USlog.jpg", cv::IMREAD_GRAYSCALE);
-  const auto input = convertMatToHalide(img);
+      cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
+  // auto img =
+  //     cv::imread("/Users/tnie/Downloads/USlog.jpg", cv::IMREAD_GRAYSCALE);
+  const auto input = hl::convertMatToHalide(img);
 
   // Define the center, maximum radius, and whether it's a full circle
   const int r = std::min(input.width(), input.height());
@@ -120,12 +120,12 @@ void runWarp2D() {
   Halide::ImageParam param(Halide::UInt(8), 2);
 
   Halide::Buffer<uint8_t> output(outX, outY);
-  warp::WarpPolar warpFunc(param, centerX, centerY, maxRadius);
+  hl::WarpPolar warpFunc(param, centerX, centerY, maxRadius);
   warpFunc.schedule_cpu();
 
   warpFunc(input, output);
 
-  auto res = convertHalideToMat(output);
+  auto res = hl::convertHalideToMat(output);
   cv::resize(res, res, {res.cols / 2, res.rows / 2});
   cv::rotate(res, res, cv::ROTATE_90_CLOCKWISE);
 
@@ -134,12 +134,20 @@ void runWarp2D() {
   cv::imshow("", res);
   cv::waitKey(0);
 
+  // Bench halide
   uspam::bench("warp 2D Halide", 100, [&] { warpFunc(input, output); });
+
+  // Bench OpenCV
+  cv::Mat cvMatOut;
+  uspam::bench("warp 2D Halide", 100, [&] {
+    cv::warpPolar(img, cvMatOut, {outX, outY}, {centerX, centerY}, maxRadius,
+                  cv::WARP_INVERSE_MAP | cv::WARP_FILL_OUTLIERS);
+  });
 }
 
 void runWarp3D() {
   auto img = cv::imread("/Users/tnie/Downloads/stripes.jpg");
-  const auto input = convertMatToHalide(img);
+  const auto input = hl::convertMatToHalide(img);
 
   // Define the center, maximum radius, and whether it's a full circle
   const int r = std::min(input.width(), input.height());
@@ -153,74 +161,17 @@ void runWarp3D() {
   Halide::ImageParam param(Halide::UInt(8), 3);
 
   Halide::Buffer<uint8_t> output(outX, outY, 3);
-  warp::WarpPolar<3> warpFunc(param, centerX, centerY, maxRadius);
+  hl::WarpPolar<3> warpFunc(param, centerX, centerY, maxRadius);
   warpFunc.schedule_cpu();
 
   warpFunc(input, output);
 
-  auto res = convertHalideToMat(output);
+  auto res = hl::convertHalideToMat(output);
   cv::resize(res, res, {res.cols / 2, res.rows / 2});
   cv::imwrite("warpPolar_halide.jpg", res);
 
   cv::imshow("", res);
   cv::waitKey(0);
-}
-
-void runWarp() {
-  // Load an image
-  auto img =
-      cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
-  // cv::imshow("", img);
-  // cv::waitKey(0);
-
-  auto input = convertMatToHalide(img);
-  fmt::println("Input channels: {}", input.channels());
-
-  // Define the center, maximum radius, and whether it's a full circle
-  const int r = std::min(input.width(), input.height());
-  const int outX = r;
-  const int outY = r;
-
-  float centerX = static_cast<float>(r) / 2.0F;
-  float centerY = static_cast<float>(r) / 2.0F;
-  float maxRadius = std::min(centerX, centerY);
-
-  Halide::ImageParam param(Halide::UInt(8), 2);
-
-  Halide::Buffer<uint8_t> output(outX, outY);
-  warp::WarpPolar<3> warpFunc(param, centerX, centerY, maxRadius);
-  warpFunc.schedule_cpu();
-  warpFunc(input, output);
-
-  auto res = convertHalideToMat(output);
-  cv::resize(res, res, {res.cols / 2, res.rows / 2});
-  cv::imwrite("warpPolar_halide.jpg", res);
-
-  cv::imshow("", res);
-  cv::waitKey(0);
-
-  cv::Mat cvWarp;
-
-  cv::warpPolar(img, cvWarp, {r, r}, {(float)r / 2, (float)r / 2},
-                (double)r / 2, cv::WARP_INVERSE_MAP | cv::WARP_FILL_OUTLIERS);
-  cv::resize(cvWarp, cvWarp, {cvWarp.cols / 2, cvWarp.rows / 2});
-  cv::imwrite("warpPolar_cv.jpg", cvWarp);
-
-  // cv::imshow("", cvWarp);
-  // cv::waitKey(0);
-
-  // Bench
-  uspam::bench("warpPolar_halide", 100, [&] {
-    // Halide::Buffer<uint8_t> output(outX, outY);
-    // param.set(input);
-    // pipeline.realize(output);
-    warpFunc(input, output);
-  });
-
-  uspam::bench("warpPolar_cv", 100, [&] {
-    cv::warpPolar(img, cvWarp, {r, r}, {(float)r / 2, (float)r / 2},
-                  (double)r / 2, cv::WARP_INVERSE_MAP | cv::WARP_FILL_OUTLIERS);
-  });
 }
 
 int main(int argc, char *argv[]) {
@@ -232,7 +183,7 @@ int main(int argc, char *argv[]) {
 
   // runWarp();
   runWarp2D();
-  runWarp3D();
+  // runWarp3D();
 
   return 0;
 }
