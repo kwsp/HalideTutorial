@@ -1,14 +1,13 @@
+#include "halideUtils.hpp"
+#include "resize.hpp"
+#include "timeit.hpp"
+#include "warpPolar.hpp"
 #include <Halide.h>
 #include <fmt/core.h>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <stdexcept>
-
-#include "halideUtils.hpp"
-#include "timeit.hpp"
-#include "warpPolar.hpp"
 
 int runHalide() {
   // This program defines a single-stage imaging pipeline that
@@ -139,7 +138,7 @@ void runWarp2D() {
 
   // Bench OpenCV
   cv::Mat cvMatOut;
-  uspam::bench("warp 2D Halide", 100, [&] {
+  uspam::bench("warp 2D CV", 100, [&] {
     cv::warpPolar(img, cvMatOut, {outX, outY}, {centerX, centerY}, maxRadius,
                   cv::WARP_INVERSE_MAP | cv::WARP_FILL_OUTLIERS);
   });
@@ -174,6 +173,68 @@ void runWarp3D() {
   cv::waitKey(0);
 }
 
+void runResize() {
+  auto img =
+      cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
+  const auto input = hl::convertMatToHalide(img);
+
+  cv::Size dsize{200, 200};
+
+  Halide::ImageParam param(Halide::UInt(8), 2);
+  Halide::Buffer<uint8_t> output(dsize.width, dsize.height);
+
+  hl::Resize resizeFunc(param, dsize.width, dsize.height);
+  resizeFunc.schedule_cpu();
+  resizeFunc(input, output);
+
+  cv::Mat resizedImg = hl::convertHalideToMat(output);
+  cv::imshow("", resizedImg);
+  cv::waitKey(0);
+
+  // Check correct
+  {
+    cv::Mat cvMatOut;
+    cv::resize(img, cvMatOut, dsize);
+
+    if (resizedImg.cols != dsize.width || resizedImg.rows != dsize.height) {
+      fmt::println("resizedImg size incorrect");
+      fmt::println("resizeImage size: ({}, {})", resizedImg.cols,
+                   resizedImg.rows);
+    }
+
+    if (cvMatOut.cols != dsize.width || cvMatOut.rows != dsize.height) {
+      fmt::println("cvMatOut size incorrect");
+      fmt::println("cvMatOut size: ({}, {})", cvMatOut.cols, cvMatOut.rows);
+    }
+
+    int totalDiff = 0;
+    for (int row = 0; row < resizedImg.rows; row++) {
+      for (int col = 0; col < resizedImg.cols; col++) {
+        const auto res = cvMatOut.at<uint8_t>(row, col);
+        const auto expect = resizedImg.at<uint8_t>(row, col);
+        if (res != expect) {
+          fmt::println("Resize result incorrect at ({}, {}): got {}, expect {}",
+                       col, row, res, expect);
+          auto d = (int)cvMatOut.at<uint8_t>(col, row) -
+                   (int)resizedImg.at<uint8_t>(col, row);
+          totalDiff += std::abs(d);
+        }
+      }
+    }
+    fmt::println("Total diff: {}", totalDiff);
+  }
+
+  // Bench halide
+  uspam::bench("Resize 2D Halide", 100, [&] { resizeFunc(input, output); });
+
+  // Bench OpenCV
+  {
+    cv::Mat cvMatOut;
+    uspam::bench("Resize 2D CV", 100,
+                 [&] { cv::resize(img, cvMatOut, dsize); });
+  }
+}
+
 int main(int argc, char *argv[]) {
   fmt::print("Hello, world!\n");
 
@@ -181,9 +242,10 @@ int main(int argc, char *argv[]) {
 
   fmt::println("Host target: {}", Halide::get_host_target().to_string());
 
-  // runWarp();
-  runWarp2D();
+  // runWarp2D();
   // runWarp3D();
+
+  runResize();
 
   return 0;
 }
