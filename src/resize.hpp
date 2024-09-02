@@ -6,7 +6,8 @@
 #include <utility>
 
 namespace hl {
-class Resize {
+
+template <int Dims = 2> class Resize {
 public:
   Resize(Halide::ImageParam input, float dwidth, float dheight)
       : input(std::move(input)), dwidth(dwidth), dheight(dheight) {
@@ -28,16 +29,29 @@ public:
     }
   }
 
-  void auto_schedule() {
-    auto target = Halide::get_host_target();
+  bool schedule_gpu() {
+    auto target = find_gpu_target();
+    if (!target.has_gpu_feature()) {
+      return false;
+    }
+
+    Halide::Var block;
+    Halide::Var thread;
+
+    Halide::Var xi("xi");
+    Halide::Var yi("yi");
+
+    resized.gpu_tile(x, y, xi, yi, 32, 32).parallel(y).vectorize(xi, 16);
+
+    resized.gpu_threads(y);
 
     pipeline = Halide::Pipeline(resized);
-
     try {
       pipeline.compile_jit(Halide::get_host_target());
     } catch (const Halide::CompileError &e) {
       fmt::println("Halide exception: {}", e.what());
     }
+    return true;
   }
 
   template <typename T>
@@ -52,6 +66,7 @@ private:
 
   Halide::Var x{"x"};
   Halide::Var y{"y"};
+  Halide::Var c{"c"};
 
   Halide::Func resized;
 
@@ -59,9 +74,6 @@ private:
 
   void setup() {
     using Halide::cast;
-    using Halide::clamp;
-    using Halide::floor;
-    using Halide::lerp;
 
     auto scaleX = cast<float>(input.width()) / dwidth;
     auto scaleY = cast<float>(input.height()) / dheight;
@@ -69,28 +81,11 @@ private:
     auto inX = (x + 0.5F) * scaleX - 0.5F;
     auto inY = (y + 0.5F) * scaleY - 0.5F;
 
-    auto x0 = clamp(cast<int>(floor(inX)), 0, input.width() - 1);
-    auto x1 = clamp(x0 + 1, 0, input.width() - 1);
-    auto y0 = clamp(cast<int>(floor(inY)), 0, input.height() - 1);
-    auto y1 = clamp(y0 + 1, 0, input.height() - 1);
-
-    auto xf = frac(inX);
-    auto yf = frac(inY);
-
-    // Access the four neighboring pixels
-    auto clamped = Halide::BoundaryConditions::repeat_edge(input);
-    auto topLeft = clamped(x0, y0);
-    auto topRight = clamped(x1, y0);
-    auto bottomLeft = clamped(x0, y1);
-    auto bottomRight = clamped(x1, y1);
-
-    // Bilinear interpolation
-    auto top = lerp(topLeft, topRight, xf);
-    auto bottom = lerp(bottomLeft, bottomRight, xf);
-    auto value = lerp(top, bottom, yf);
-
-    // Save to output
-    resized(x, y) = value;
+    if constexpr (Dims == 2) {
+      resized(x, y) = bilinear_interpolate<Dims>(input, inX, inY);
+    } else {
+      resized(x, y) = bilinear_interpolate<Dims>(input, inX, inY, c);
+    }
   }
 };
 

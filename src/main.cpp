@@ -3,6 +3,7 @@
 #include "timeit.hpp"
 #include "warpPolar.hpp"
 #include <Halide.h>
+#include <armadillo>
 #include <fmt/core.h>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
@@ -10,8 +11,10 @@
 #include <opencv2/imgproc.hpp>
 
 void runWarp2D() {
-  auto img =
-      cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
+  // auto img =
+  //     cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_GRAYSCALE);
+  auto img = cv::imread("/Users/tnie/Downloads/rect.png", cv::IMREAD_GRAYSCALE);
+
   // auto img =
   //     cv::imread("/Users/tnie/Downloads/USlog.jpg", cv::IMREAD_GRAYSCALE);
   const auto input = hl::convertMatToHalide(img);
@@ -34,7 +37,6 @@ void runWarp2D() {
   warpFunc(input, output);
 
   auto res = hl::convertHalideToMat(output);
-  cv::resize(res, res, {res.cols / 2, res.rows / 2});
   cv::rotate(res, res, cv::ROTATE_90_CLOCKWISE);
 
   cv::imwrite("warpPolar_halide.jpg", res);
@@ -43,18 +45,29 @@ void runWarp2D() {
   cv::waitKey(0);
 
   // Bench halide
-  uspam::bench("warp 2D Halide", 100, [&] { warpFunc(input, output); });
+  {
+    auto nanos =
+        uspam::bench("warp 2D Halide", 100, [&] { warpFunc(input, output); });
+    arma::conv_to<arma::Col<int64_t>>::from(nanos).save("warp_2d_halide.bin",
+                                                        arma::raw_binary);
+  }
 
   // Bench OpenCV
   cv::Mat cvMatOut;
-  uspam::bench("warp 2D CV", 100, [&] {
-    cv::warpPolar(img, cvMatOut, {outX, outY}, {centerX, centerY}, maxRadius,
-                  cv::WARP_INVERSE_MAP | cv::WARP_FILL_OUTLIERS);
-  });
+  {
+    auto nanos = uspam::bench("warp 2D CV", 100, [&] {
+      cv::warpPolar(img, cvMatOut, {outX, outY}, {centerX, centerY}, maxRadius,
+                    cv::WARP_INVERSE_MAP | cv::WARP_FILL_OUTLIERS);
+      cv::rotate(cvMatOut, cvMatOut, cv::ROTATE_90_COUNTERCLOCKWISE);
+    });
+    arma::conv_to<arma::Col<int64_t>>::from(nanos).save("warp_2d_cv.bin",
+                                                        arma::raw_binary);
+    cv::imwrite("warpPolar_cv.jpg", cvMatOut);
+  }
 }
 
 void runWarp3D() {
-  auto img = cv::imread("/Users/tnie/Downloads/stripes.jpg");
+  auto img = cv::imread("/Users/tnie/Downloads/stripes.jpg", cv::IMREAD_COLOR);
   const auto input = hl::convertMatToHalide(img);
 
   // Define the center, maximum radius, and whether it's a full circle
@@ -92,8 +105,9 @@ void runResize() {
   Halide::ImageParam param(Halide::UInt(8), 2);
   Halide::Buffer<uint8_t> output(dsize.width, dsize.height);
 
-  hl::Resize resizeFunc(param, dsize.width, dsize.height);
+  hl::Resize<2> resizeFunc(param, dsize.width, dsize.height);
   resizeFunc.schedule_cpu();
+  // resizeFunc.schedule_gpu();
   resizeFunc(input, output);
 
   cv::Mat resizedImg = hl::convertHalideToMat(output);
@@ -124,9 +138,7 @@ void runResize() {
         if (res != expect) {
           fmt::println("Resize result incorrect at ({}, {}): got {}, expect {}",
                        col, row, res, expect);
-          auto d = (int)cvMatOut.at<uint8_t>(col, row) -
-                   (int)resizedImg.at<uint8_t>(col, row);
-          totalDiff += std::abs(d);
+          totalDiff += std::abs(res - expect);
         }
       }
     }
@@ -134,13 +146,20 @@ void runResize() {
   }
 
   // Bench halide
-  uspam::bench("Resize 2D Halide", 100, [&] { resizeFunc(input, output); });
+  {
+    auto nanos = uspam::bench("Resize 2D Halide", 100,
+                              [&] { resizeFunc(input, output); });
+    arma::conv_to<arma::Col<int64_t>>::from(nanos).save("resize_2d_halide.bin",
+                                                        arma::raw_binary);
+  }
 
   // Bench OpenCV
   {
     cv::Mat cvMatOut;
-    uspam::bench("Resize 2D CV", 100,
-                 [&] { cv::resize(img, cvMatOut, dsize); });
+    auto nanos = uspam::bench("Resize 2D CV", 100,
+                              [&] { cv::resize(img, cvMatOut, dsize); });
+    arma::conv_to<arma::Col<int64_t>>::from(nanos).save("resize_2d_cv.bin",
+                                                        arma::raw_binary);
   }
 }
 

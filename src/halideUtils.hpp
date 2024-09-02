@@ -6,8 +6,42 @@
 
 namespace hl {
 
-// Compute the fractional part of the expr
-Halide::Expr frac(const Halide::Expr &x) { return x - Halide::floor(x); }
+// A helper function to check if OpenCL, Metal or D3D12 is present on the host
+// machine.
+
+Halide::Target find_gpu_target() {
+  // Start with a target suitable for the machine you're running this on.
+  auto target = Halide::get_host_target();
+
+  std::vector<Halide::Target::Feature> features_to_try;
+  if (target.os == Halide::Target::Windows) {
+    // Try D3D12 first; if that fails, try OpenCL.
+    if (sizeof(void *) == 8) {
+      // D3D12Compute support is only available on 64-bit systems at present.
+      features_to_try.push_back(Halide::Target::D3D12Compute);
+    }
+    features_to_try.push_back(Halide::Target::OpenCL);
+  } else if (target.os == Halide::Target::OSX) {
+    // OS X doesn't update its OpenCL drivers, so they tend to be broken.
+    // CUDA would also be a fine choice on machines with NVidia GPUs.
+    features_to_try.push_back(Halide::Target::Metal);
+  } else {
+    features_to_try.push_back(Halide::Target::OpenCL);
+  }
+  // Uncomment the following lines to also try CUDA:
+  // features_to_try.push_back(Target::CUDA);
+
+  for (Halide::Target::Feature f : features_to_try) {
+    Halide::Target new_target = target.with_feature(f);
+    if (host_supports_target_device(new_target)) {
+      return new_target;
+    }
+  }
+
+  printf("Requested GPU(s) are not supported. (Do you have the proper hardware "
+         "and/or driver installed?)\n");
+  return target;
+}
 
 // Function to convert cv::Mat to Halide::Buffer<uint8_t>
 Halide::Buffer<uint8_t> convertMatToHalide(const cv::Mat &mat) {
@@ -61,6 +95,52 @@ cv::Mat convertHalideToMat(const Halide::Buffer<T> &buffer) {
   }
 
   return mat;
+}
+
+// Apply bilinear interpolation to input at (float inX, float, inY), 2D version
+template <int Dims>
+[[nodiscard]] Halide::Expr
+bilinear_interpolate(const Halide::ImageParam &input, Halide::Expr inX,
+                     Halide::Expr inY, Halide::Expr c = 0) {
+  static_assert(Dims == 2 || Dims == 3, "Unsupported number of dimensions");
+
+  using Halide::cast;
+  using Halide::clamp;
+  using Halide::floor;
+  using Halide::fract;
+  using Halide::lerp;
+
+  auto x0 = clamp(cast<int>(floor(inX)), 0, input.width() - 1);
+  auto x1 = clamp(x0 + 1, 0, input.width() - 1);
+  auto y0 = clamp(cast<int>(floor(inY)), 0, input.height() - 1);
+  auto y1 = clamp(y0 + 1, 0, input.height() - 1);
+
+  auto clamped = Halide::BoundaryConditions::repeat_edge(input);
+
+  Halide::Expr topLeft;
+  Halide::Expr topRight;
+  Halide::Expr bottomLeft;
+  Halide::Expr bottomRight;
+
+  if constexpr (Dims == 2) {
+    topLeft = clamped(x0, y0);
+    topRight = clamped(x1, y0);
+    bottomLeft = clamped(x0, y1);
+    bottomRight = clamped(x1, y1);
+  } else {
+    topLeft = clamped(x0, y0, c);
+    topRight = clamped(x1, y0, c);
+    bottomLeft = clamped(x0, y1, c);
+    bottomRight = clamped(x1, y1, c);
+  }
+
+  auto xf = fract(inX);
+  auto yf = fract(inY);
+  auto top = lerp(topLeft, topRight, xf);
+  auto bottom = lerp(bottomLeft, bottomRight, xf);
+  auto value = lerp(top, bottom, yf);
+
+  return value;
 }
 
 } // namespace hl
