@@ -106,8 +106,21 @@ void runResize() {
   Halide::Buffer<uint8_t> output(dsize.width, dsize.height);
 
   hl::Resize<2> resizeFunc(param, dsize.width, dsize.height);
-  resizeFunc.schedule_cpu();
-  // resizeFunc.schedule_gpu();
+
+  bool gpu_scheduled = false;
+  try {
+    gpu_scheduled = resizeFunc.schedule_gpu();
+  } catch (Halide::RuntimeError &e) {
+    // Failed
+    fmt::println("No GPU found.");
+    gpu_scheduled = false;
+  }
+
+  if (!gpu_scheduled) {
+    fmt::println("Scheduling on the CPU");
+    resizeFunc.schedule_cpu();
+  }
+
   resizeFunc(input, output);
 
   cv::Mat resizedImg = hl::convertHalideToMat(output);

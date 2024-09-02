@@ -33,8 +33,13 @@ Halide::Target find_gpu_target() {
 
   for (Halide::Target::Feature f : features_to_try) {
     Halide::Target new_target = target.with_feature(f);
-    if (host_supports_target_device(new_target)) {
-      return new_target;
+    try {
+      if (Halide::host_supports_target_device(new_target)) {
+        return new_target;
+      }
+    } catch (Halide::CompileError &e) {
+      fmt::println("Exception in Halide::host_supports_target_device: {}",
+                   e.what());
     }
   }
 

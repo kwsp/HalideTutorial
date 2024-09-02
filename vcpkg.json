@@ -10,7 +10,9 @@
       "features": ["contrib", "dnn", "png", "vulkan", "tbb", "png", "world"]
     },
     {
-      "name": "halide"
+      "name": "halide",
+      "features": ["target-opencl"],
+      "platform": "x64"
     }
   ]
 }
